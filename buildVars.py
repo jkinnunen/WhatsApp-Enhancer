@@ -23,10 +23,10 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Accessibility enhancements for WhatsApp Desktop (WebView2)"""),
 	# version
-	addon_version="1.1.3",
+	addon_version="1.1.4",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""NVDA 2026 compatible"""),
+	addon_changelog=_("""NVDA 2026 compatibility, crash fixes, and optimized multilingual context menu performance."""),
 	# Author(s)
 	addon_author="mrido1",
 	# URL for the add-on documentation support
