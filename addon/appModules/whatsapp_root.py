@@ -375,8 +375,8 @@ class AppModule(appModuleHandler.AppModule):
 					default = "True" if "default=True" in spec else "False"
 					config.conf[_CONFIG_SECTION][key] = default
 			self._phone_cache = {
-				"filterChatListPhones": self._read_bool("filterChatListPhones", False),
-				"filterMessageListPhones": self._read_bool("filterMessageListPhones", True),
+				"filterChatListPhones": self._read_bool("filter_phone_numbers_chat", self._read_bool("filterChatListPhones", False)),
+				"filterMessageListPhones": self._read_bool("filter_phone_numbers_messages", self._read_bool("filterMessageListPhones", True)),
 			}
 		except Exception:
 			self._phone_cache = {"filterChatListPhones": False, "filterMessageListPhones": True}
@@ -469,15 +469,23 @@ class AppModule(appModuleHandler.AppModule):
 
 
 	def event_gainFocus(self, obj, nextHandler):
-		if not self.mainWindow or not self.mainWindow.windowHandle:
-			curr = obj
-			while curr:
-				if curr.role == controlTypes.Role.WINDOW:
-					self.mainWindow = curr
-					break
-				curr = curr.parent
-		if not config.conf.get("WhatsAppEnhancer", {}).get("disable_browse_mode_lock", False):
-			if obj.treeInterceptor: obj.treeInterceptor.passThrough = True
+		try:
+			if not self.mainWindow or not self.mainWindow.windowHandle:
+				curr = obj
+				while curr:
+					if curr.role == controlTypes.Role.WINDOW:
+						self.mainWindow = curr
+						break
+					curr = curr.parent
+		except Exception:
+			pass
+		try:
+			if not config.conf.get("WhatsAppEnhancer", {}).get("disable_browse_mode_lock", False):
+				ti = getattr(obj, "treeInterceptor", None)
+				if ti:
+					ti.passThrough = True
+		except Exception:
+			pass
 		nextHandler()
 
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):
@@ -497,16 +505,29 @@ class AppModule(appModuleHandler.AppModule):
 		super().terminate()
 
 	def _patch_speech(self):
+		self._original_speak = None
+		self._patched_speech_module = None
 		try:
+			import speech.speech
 			self._original_speak = speech.speech.speak
 			speech.speech.speak = self._on_speak
-		except:
-			self._original_speak = speech.speak
+			self._patched_speech_module = speech.speech
+		except Exception:
+			try:
+				self._original_speak = speech.speak
+				speech.speak = self._on_speak
+				self._patched_speech_module = speech
+			except Exception:
+				pass
 
 	def _unpatch_speech(self):
-		if self._original_speak:
-			try: self.speech.speak = self._original_speak
-			except: speech.speak = self._original_speak
+		if self._patched_speech_module and self._original_speak:
+			try:
+				self._patched_speech_module.speak = self._original_speak
+			except Exception:
+				pass
+		self._original_speak = None
+		self._patched_speech_module = None
 
 	def _on_speak(self, sequence, *args, **kwargs):
 		new_sequence = []
@@ -701,27 +722,63 @@ class AppModule(appModuleHandler.AppModule):
 			return
 
 		def is_context_button(obj):
-			if obj.role != controlTypes.Role.BUTTON: return False
+			if obj.role != controlTypes.Role.BUTTON:
+				return False
+			states = getattr(obj, "states", set())
+			is_popup = (controlTypes.State.COLLAPSED in states) or (controlTypes.State.EXPANDED in states)
+			if not is_popup:
+				name = (getattr(obj, "name", "") or "").lower()
+				if name:
+					for k in ("menu", "context", "opsi", "option", "bağlam", "контекст"):
+						if k in name:
+							return True
+				return False
 			cls = getattr(obj, "IA2Attributes", {}).get("class", "")
-			return "_ahkm" in cls or ("xhslqc4" in cls and "x16dsc37" in cls)
+			if cls:
+				classes = set(cls.split())
+				if classes & {"_ahkm", "xmix8c7", "x1xp8n7a", "xbrszos", "xea3l6g", "xhslqc4", "x16dsc37", "x1jzctok", "x1bvqhpb", "x1ypdohk", "x1djpfga", "x1im30kd", "xtijo5x", "xs7f9wi"}:
+					return True
+			return False
 
 		if is_context_button(f):
-			f.doAction()
-			return
+			try:
+				f.doAction()
+				return
+			except Exception:
+				pass
 
-		from .wh_utils import collect_elements
-		curr = f
+		container = f
 		for _ in range(8):
-			if not curr or curr.role == controlTypes.Role.WINDOW: break
-			if is_context_button(curr):
-				curr.doAction()
-				return
-			res = collect_elements(curr, is_context_button, max_items=100)
-			if res:
-				res[0].doAction()
-				return
-			curr = curr.parent
-		
+			if not container or container.role == controlTypes.Role.WINDOW:
+				break
+			cls = getattr(container, "IA2Attributes", {}).get("class", "")
+			if "focusable-list-item" in cls or container.role == controlTypes.Role.LISTITEM:
+				break
+			container = container.parent
+
+		if not container:
+			container = f
+
+		from collections import deque
+		queue = deque([container])
+		visited = 0
+		while queue and visited < 150:
+			obj = queue.popleft()
+			visited += 1
+			try:
+				child = obj.firstChild
+				while child:
+					if is_context_button(child):
+						try:
+							child.doAction()
+							return
+						except Exception:
+							pass
+					queue.append(child)
+					child = child.next
+			except Exception:
+				pass
+
 		gesture.send()
 
 	@script(description=_("Play voice message"), gesture="kb:enter")
@@ -780,17 +837,36 @@ class AppModule(appModuleHandler.AppModule):
 			gesture.send()
 			return
 
-		from .wh_utils import collect_elements
-		res = collect_elements(f, is_voice_play_button, max_items=30)
-		if not res and f.parent:
-			res = collect_elements(f.parent, is_voice_play_button, max_items=45)
-		if not res and f.parent and f.parent.parent:
-			res = collect_elements(f.parent.parent, is_voice_play_button, max_items=60)
-		
-		if res:
-			activate_button(res[0])
-		else:
-			gesture.send()
+		container = f
+		for _ in range(8):
+			if not container or container.role == controlTypes.Role.WINDOW:
+				break
+			cls = getattr(container, "IA2Attributes", {}).get("class", "")
+			if "focusable-list-item" in cls or container.role == controlTypes.Role.LISTITEM:
+				break
+			container = container.parent
+
+		if not container:
+			container = f
+
+		from collections import deque
+		queue = deque([container])
+		visited = 0
+		while queue and visited < 150:
+			obj = queue.popleft()
+			visited += 1
+			try:
+				child = obj.firstChild
+				while child:
+					if is_voice_play_button(child):
+						if activate_button(child):
+							return
+					queue.append(child)
+					child = child.next
+			except Exception:
+				pass
+
+		gesture.send()
 
 	@script(description=_("Open call menu"), gesture="kb:shift+alt+c")
 	def script_openCallMenu(self, gesture):
@@ -811,38 +887,69 @@ class AppModule(appModuleHandler.AppModule):
 			cls = getattr(obj, "IA2Attributes", {}).get("class", "")
 			return "xjb2p0i" in cls and "xk390pu" in cls
 
-		from .wh_utils import collect_elements
 		root = self.mainWindow or api.getForegroundObject()
-		res = collect_elements(root, is_call_menu_button, max_items=500)
+		from collections import deque
+		queue = deque([root])
+		visited = 0
+		found_btn = None
+		while queue and visited < 300:
+			obj = queue.popleft()
+			visited += 1
+			try:
+				child = obj.firstChild
+				while child:
+					if is_call_menu_button(child):
+						found_btn = child
+						break
+					queue.append(child)
+					child = child.next
+				if found_btn:
+					break
+			except Exception:
+				pass
 		
-		if res:
-			self._call_menu_btn_cache = res[0]
-			res[0].doAction()
-		else:
-			gesture.send()
+		if found_btn:
+			self._call_menu_btn_cache = found_btn
+			try:
+				found_btn.doAction()
+				return
+			except:
+				pass
+		gesture.send()
 
 	@script(description=_("Toggle browse mode"), gestures=["kb:NVDA+space"])
 	def script_disableBrowseModeToggle(self, gesture):
 		lock_disabled = False
-		try: lock_disabled = bool(config.conf["WhatsAppEnhancer"].get("disable_browse_mode_lock", False))
-		except: pass
+		try:
+			lock_disabled = bool(config.conf.get("WhatsAppEnhancer", {}).get("disable_browse_mode_lock", False))
+		except Exception:
+			pass
 		if lock_disabled:
-			import globalCommands
-			s = getattr(globalCommands.commands, "script_toggleVirtualBufferPassThrough", None)
-			if s: s(gesture)
+			try:
+				import globalCommands
+				s = getattr(globalCommands.commands, "script_toggleVirtualBufferPassThrough", None)
+				if s:
+					s(gesture)
+				else:
+					gesture.send()
+			except Exception:
+				gesture.send()
 			return
-		obj = api.getFocusObject()
-		ti = getattr(obj, "treeInterceptor", None)
-		if ti:
-			ti.passThrough = True
-			ui.message(_("Browse Mode is disabled for WhatsApp"))
-		else: gesture.send()
+		try:
+			obj = api.getFocusObject()
+			ti = getattr(obj, "treeInterceptor", None)
+			if ti:
+				ti.passThrough = True
+		except Exception:
+			pass
+		ui.message(_("Browse Mode is disabled for WhatsApp"))
 
 	@script(description=_("Toggle phone number filtering in chat list"))
 	def script_toggleChatListPhones(self, gesture):
 		try:
 			new_val = not self._phone_cache.get("filterChatListPhones", False)
 			config.conf[_CONFIG_SECTION]["filterChatListPhones"] = new_val
+			config.conf[_CONFIG_SECTION]["filter_phone_numbers_chat"] = new_val
 			config.conf.save()
 			self._phone_cache["filterChatListPhones"] = new_val
 			if new_val:
@@ -857,6 +964,7 @@ class AppModule(appModuleHandler.AppModule):
 		try:
 			new_val = not self._phone_cache.get("filterMessageListPhones", True)
 			config.conf[_CONFIG_SECTION]["filterMessageListPhones"] = new_val
+			config.conf[_CONFIG_SECTION]["filter_phone_numbers_messages"] = new_val
 			config.conf.save()
 			self._phone_cache["filterMessageListPhones"] = new_val
 			if new_val:

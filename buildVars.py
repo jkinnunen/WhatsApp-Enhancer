@@ -23,10 +23,10 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Accessibility enhancements for WhatsApp Desktop (WebView2)"""),
 	# version
-	addon_version="1.1.2",
+	addon_version="1.1.3",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""chat list and message list now have own phone numbering filtering options."""),
+	addon_changelog=_("""NVDA 2026 compatible"""),
 	# Author(s)
 	addon_author="mrido1",
 	# URL for the add-on documentation support
@@ -38,7 +38,7 @@ addon_info = AddonInfo(
 	# Minimum NVDA version supported (e.g. "2019.3.0", minor version is optional)
 	addon_minimumNVDAVersion="2024.1",
 	# Last NVDA version supported/tested (e.g. "2024.4.0", ideally more recent than minimum version)
-	addon_lastTestedNVDAVersion="2025.3.3",
+	addon_lastTestedNVDAVersion="2026.1",
 	# Add-on update channel (default is None, denoting stable releases,
 	# and for development releases, use "dev".)
 	# Do not change unless you know what you are doing!

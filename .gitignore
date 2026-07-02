@@ -1,5 +1,6 @@
 addon/doc/*.css
 addon/doc/en/
+.antigravitycli
 *_docHandler.py
 *.html
 manifest.ini

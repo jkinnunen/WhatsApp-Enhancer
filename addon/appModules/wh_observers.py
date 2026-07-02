@@ -22,12 +22,14 @@ class ProgressObserver:
 	def start(cls):
 		obj = api.getFocusObject()
 		cls.progress_obj = None
-		if obj.childCount > 0:
-			for child in obj.children:
-				if child.role == controlTypes.Role.PROGRESSBAR:
-					cls.progress_obj = child
-					break
-		
+		if obj and getattr(obj, "childCount", 0) > 0:
+			try:
+				for child in getattr(obj, "children", []):
+					if child and child.role == controlTypes.Role.PROGRESSBAR:
+						cls.progress_obj = child
+						break
+			except:
+				pass
 		if cls.progress_obj:
 			cls.active = True
 			cls.tick()
@@ -35,12 +37,12 @@ class ProgressObserver:
 	@classmethod
 	def tick(cls):
 		if not cls.active or not cls.progress_obj: return
-		
 		try:
 			val = cls.progress_obj.value or cls.progress_obj.name
 			if not cls.last_val or cls.last_val != val:
 				ui.message(_("Progress: {val}").format(val=val))
 				cls.last_val = val
-			Timer(cls.interval, cls.tick).start()
+			import wx
+			wx.CallLater(int(cls.interval * 1000), cls.tick)
 		except:
 			cls.active = False
