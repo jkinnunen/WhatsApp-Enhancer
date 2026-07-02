@@ -1,9 +1,7 @@
 ## What's New?
 
 ### Version 1.1.4
-* **NVDA 2026 Ready**: Upgraded core components for Python 3.13 and 64-bit NVDA 2026.1 support.
 * **Crash Fixes**: Migrated the background progress observer to the GUI thread and fixed speech patching memory leaks.
 * **Optimized Context Menu (`shift+enter`)**: Replaced slow recursive searches with an instant single-pass traversal.
-* **Universal Language Support**: Uses semantic WAI-ARIA states (`COLLAPSED`/`EXPANDED`) to reliably find message context buttons in any language.
-* **General Performance**: Accelerated voice message playback and call menu buttons.
-* **Strict Browse Mode Lock**: Blocks `NVDA+space` keypresses entirely when locking is active to prevent accidental virtual buffer toggles.
+* **General Performance**: Accelerated voice message playback button.
+* **Fix strict Browse Mode Lock**: Blocks `NVDA+space` keypresses entirely when locking is active to prevent accidental virtual buffer toggles.
