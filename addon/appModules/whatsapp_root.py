@@ -6,6 +6,7 @@ import controlTypes
 import config
 import sys
 import re
+import time
 import logHandler
 import speech
 import speechViewer
@@ -18,6 +19,7 @@ import wx
 addonHandler.initTranslation()
 
 _PHONE_RE = re.compile(r'\+\d[()\d\s\u202c-]{11,}')
+_CHAT_LIST_DUPLICATE_WINDOW = 1.0
 _CONFIG_SECTION = "WhatsAppEnhancer"
 _CONFIG_SPEC = {
 	"filterChatListPhones": "boolean(default=False)",
@@ -362,7 +364,10 @@ class AppModule(appModuleHandler.AppModule):
 		self._review_line_index = 0
 		self._is_reviewing = False
 		self._original_speak = None
+		self._speech_filter = None
 		self._phone_cache = {}
+		self._focus_in_chat_list_table = False
+		self._last_chat_list_speech = ("", 0.0)
 		self._init_phone_config()
 		self._patch_speech()
 
@@ -423,6 +428,16 @@ class AppModule(appModuleHandler.AppModule):
 			pass
 		return False
 
+	def _is_in_chat_list_table(self, obj):
+		for current in api.getFocusAncestors() + [obj]:
+			try:
+				attrs = getattr(current, "IA2Attributes", {})
+				if current.role == controlTypes.Role.TABLE and attrs.get("xml-roles") == "grid":
+					return True
+			except Exception:
+				continue
+		return False
+
 	def event_NVDAObject_init(self, obj):
 		if obj.role == controlTypes.Role.SECTION:
 			obj.role = controlTypes.Role.PANE
@@ -469,6 +484,7 @@ class AppModule(appModuleHandler.AppModule):
 
 
 	def event_gainFocus(self, obj, nextHandler):
+		self._focus_in_chat_list_table = self._is_in_chat_list_table(obj)
 		try:
 			if not self.mainWindow or not self.mainWindow.windowHandle:
 				curr = obj
@@ -508,6 +524,13 @@ class AppModule(appModuleHandler.AppModule):
 		self._original_speak = None
 		self._patched_speech_module = None
 		try:
+			from speech.extensions import filter_speechSequence
+			filter_speechSequence.register(self._filter_speech)
+			self._speech_filter = filter_speechSequence
+			return
+		except (ImportError, AttributeError):
+			pass
+		try:
 			import speech.speech
 			self._original_speak = speech.speech.speak
 			speech.speech.speak = self._on_speak
@@ -521,6 +544,12 @@ class AppModule(appModuleHandler.AppModule):
 				pass
 
 	def _unpatch_speech(self):
+		if self._speech_filter:
+			try:
+				self._speech_filter.unregister(self._filter_speech)
+			except Exception:
+				pass
+			self._speech_filter = None
 		if self._patched_speech_module and self._original_speak:
 			try:
 				self._patched_speech_module.speak = self._original_speak
@@ -529,7 +558,10 @@ class AppModule(appModuleHandler.AppModule):
 		self._original_speak = None
 		self._patched_speech_module = None
 
-	def _on_speak(self, sequence, *args, **kwargs):
+	def _filter_speech(self, sequence):
+		focus = api.getFocusObject()
+		if not focus or getattr(focus, "appModule", None) is not self:
+			return sequence
 		new_sequence = []
 		hp = r"(For more options|Untuk opsi|Para lebih|Para más|Pour plus|Per lebih|Per lebih banyak|Per lebih lanjut|Per più|Für weitere|Para mais|Daha fazla|Voor meer|Untuk mengakses|Untuk selengkapnya|Untuk bantuan|Untuk mendapatkan|Для получения|Để biết thêm|สำหรับตัวเลือก|その他のオプション|更多选项|अधिक विकल्पों|추가 옵션)"
 		for item in sequence:
@@ -537,15 +569,26 @@ class AppModule(appModuleHandler.AppModule):
 				if re.search(r"(arrow|panah|flecha|flèche|freccia|ok|Ok|стрелк|menu|konteks|context|contexto|contextuel|contestuale|Kontext|Bağlam)", item, re.I) and re.search(hp, item, re.I):
 					item = re.sub(hp + r".*", "", item, flags=re.I).strip()
 			new_sequence.append(item)
-		if self._original_speak: self._original_speak(new_sequence, *args, **kwargs)
+		text_list = [item for item in new_sequence if isinstance(item, str)]
+		full_text = " ".join(text_list)
+		if full_text.strip() and self._focus_in_chat_list_table:
+			speech_key = " ".join(full_text.split())
+			now = time.monotonic()
+			last_key, last_time = self._last_chat_list_speech
+			self._last_chat_list_speech = (speech_key, now)
+			if speech_key == last_key and now - last_time < _CHAT_LIST_DUPLICATE_WINDOW:
+				return []
 		if not self._is_reviewing:
-			text_list = [item for item in new_sequence if isinstance(item, str)]
-			full_text = " ".join(text_list)
 			if full_text.strip():
 				self._last_spoken_text = full_text
 				self._last_spoken_lines = [line for line in text_list if line.strip()]
 				self._review_cursor = 0
 				self._review_line_index = 0
+		return new_sequence
+
+	def _on_speak(self, sequence, *args, **kwargs):
+		if self._original_speak:
+			self._original_speak(self._filter_speech(sequence), *args, **kwargs)
 
 	@script(description=_("Review previous character"), gesture="kb:NVDA+leftArrow")
 	def script_review_previous_character(self, gesture):
