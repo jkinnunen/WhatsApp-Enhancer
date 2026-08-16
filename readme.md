@@ -102,7 +102,7 @@ Group chats often become cluttered with unsaved phone numbers, making chat heade
 
 This add-on features an intelligent **filter** that strips phone numbers from object names in both **Speech and Braille**, resulting in a much cleaner interface.
 
-*   **Toggle Filter (`Ctrl + Shift + E`):** Instantly enable or disable the filter. You can also set your permanent preference in the add-on settings.
+*   **Configuration:** Configure chat-list and message-list filtering separately in the add-on settings. Both commands can also be assigned from NVDA's Input Gestures dialog.
 
 ### 4. Smart "Usage Hint" Silencing
 WhatsApp often appends repetitive instructions to every chat item (e.g., *"For more options, press left or right arrow..."*). Hearing this on every single chat is tedious and slows down your workflow.

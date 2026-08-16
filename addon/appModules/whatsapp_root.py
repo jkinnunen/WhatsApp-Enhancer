@@ -4,36 +4,22 @@ import ui
 import api
 import controlTypes
 import config
-import sys
 import re
 import time
-import logHandler
 import speech
-import speechViewer
-import tones
-import globalCommands
 import addonHandler
-import winUser
 import wx
+from speech.extensions import filter_speechSequence
 
 addonHandler.initTranslation()
 
 _PHONE_RE = re.compile(r'\+\d[()\d\s\u202c-]{11,}')
-_CHAT_LIST_DUPLICATE_WINDOW = 1.0
+_CHAT_LIST_DUPLICATE_WINDOW = 0.25
 _CONFIG_SECTION = "WhatsAppEnhancer"
-_CONFIG_SPEC = {
-	"filterChatListPhones": "boolean(default=False)",
-	"filterMessageListPhones": "boolean(default=True)",
-}
 
-sys.path.insert(0, ".")
 from .text_window import TextWindow
-from .wh_observers import ProgressObserver
-from .wh_navigation import (
-	set_focus_and_navigator
-)
 from NVDAObjects.IAccessible.ia2Web import Ia2Web
-from .wh_utils import find_by_automation_id, find_button_by_name, collect_elements
+from .wh_utils import collect_elements
 
 class CallMenuDialog(Ia2Web):
 	_v_idx = -1
@@ -55,7 +41,6 @@ class CallMenuDialog(Ia2Web):
 				if is_item:
 					name = o.name
 					if not name:
-						from .wh_utils import collect_elements
 						sub = collect_elements(o, lambda x: x.name, max_items=10)
 						name = " ".join([s.name for s in sub if s.name])
 					if name and name.strip():
@@ -76,7 +61,6 @@ class CallMenuDialog(Ia2Web):
 		obj = items[self._v_idx]
 		name = obj.name
 		if not name:
-			from .wh_utils import collect_elements
 			sub = collect_elements(obj, lambda o: o.name, max_items=20)
 			name = " ".join([s.name for s in sub if s.name])
 		
@@ -148,7 +132,6 @@ class HeaderMenuDialog(Ia2Web):
 				if is_target:
 					name = o.name
 					if not name:
-						from .wh_utils import collect_elements
 						sub = collect_elements(o, lambda x: x.name, max_items=10)
 						name = " ".join([s.name for s in sub if s.name])
 					if name and name.strip():
@@ -169,7 +152,6 @@ class HeaderMenuDialog(Ia2Web):
 		obj = items[self._v_idx]
 		name = obj.name
 		if not name:
-			from .wh_utils import collect_elements
 			sub = collect_elements(obj, lambda o: o.name, max_items=20)
 			name = " ".join([s.name for s in sub if s.name])
 		
@@ -218,13 +200,8 @@ class HeaderMenuDialog(Ia2Web):
 
 class AppModule(appModuleHandler.AppModule):
 	disableBrowseModeByDefault = True
-	mainWindow = None
 	scriptCategory = _("WhatsApp Enhancer")
 
-	_message_list_cache = None
-	_composer_cache = None
-	_chats_cache = None
-	_title_element_cache = None
 	_TIMESTAMP_RE = re.compile(r'^\d{1,2}[:.]\d{2}(\s*[AaPp][Mm])?$')
 	_HINT_RE = re.compile(
 		r"(For more options|Untuk opsi|Para m|Pour plus|Per lebih|F\u00fcr weitere|"
@@ -299,18 +276,10 @@ class AppModule(appModuleHandler.AppModule):
 	def _get_full_message_text(self, obj):
 		return self._extract_message_body(obj)
 
-	def _scan_buttons(self, obj):
-		result = []
-		if obj.role == controlTypes.Role.BUTTON:
-			result.append(obj)
-		for child in getattr(obj, "children", []) or []:
-			result.extend(self._scan_buttons(child))
-		return result
-
 	def _locate_collapsed(self, obj):
 		try:
 			if obj.role == controlTypes.Role.BUTTON:
-				if 512 in getattr(obj, "states", set()):
+				if controlTypes.State.COLLAPSED in getattr(obj, "states", set()):
 					return obj
 			for child in getattr(obj, "children", []) or []:
 				found = self._locate_collapsed(child)
@@ -358,33 +327,19 @@ class AppModule(appModuleHandler.AppModule):
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
+		self.mainWindow = None
+		self._chats_cache = None
+		self._message_list_cache = None
+		self._composer_cache = None
+		self._call_menu_btn_cache = None
 		self._last_spoken_text = ""
 		self._last_spoken_lines = []
 		self._review_cursor = 0
 		self._review_line_index = 0
 		self._is_reviewing = False
-		self._original_speak = None
-		self._speech_filter = None
-		self._phone_cache = {}
 		self._focus_in_chat_list_table = False
 		self._last_chat_list_speech = ("", 0.0)
-		self._init_phone_config()
 		self._patch_speech()
-
-	def _init_phone_config(self):
-		try:
-			if _CONFIG_SECTION not in config.conf:
-				config.conf[_CONFIG_SECTION] = {}
-			for key, spec in _CONFIG_SPEC.items():
-				if key not in config.conf[_CONFIG_SECTION]:
-					default = "True" if "default=True" in spec else "False"
-					config.conf[_CONFIG_SECTION][key] = default
-			self._phone_cache = {
-				"filterChatListPhones": self._read_bool("filter_phone_numbers_chat", self._read_bool("filterChatListPhones", False)),
-				"filterMessageListPhones": self._read_bool("filter_phone_numbers_messages", self._read_bool("filterMessageListPhones", True)),
-			}
-		except Exception:
-			self._phone_cache = {"filterChatListPhones": False, "filterMessageListPhones": True}
 
 	def _read_bool(self, key, default):
 		try:
@@ -447,16 +402,24 @@ class AppModule(appModuleHandler.AppModule):
 				cls = ia2.get("class", "")
 				if "fd365im1" in cls:
 					self._composer_cache = obj
-					try: self._message_list_cache = obj.parent.parent.parent.parent.parent.previous.lastChild.lastChild
-					except: pass
-				elif "focusable-list-item" in cls:
-					if not self._message_list_cache: self._message_list_cache = obj.parent
+					try:
+						self._message_list_cache = obj.parent.parent.parent.parent.parent.previous.lastChild.lastChild
+					except Exception:
+						pass
+				elif "focusable-list-item" in cls and not self._message_list_cache:
+					self._message_list_cache = obj.parent
+		except Exception:
+			pass
+		try:
 			if not self._chats_cache and obj.role == controlTypes.Role.LIST:
 				loc = obj.location
-				if loc and loc.left < 450 and loc.width < 500: self._chats_cache = obj
+				if loc and loc.left < 450 and loc.width < 500:
+					self._chats_cache = obj
 			if obj.name and re.search(r'^(Chats|Chat|Daftar chat)$', obj.name, re.I):
-				try: self._chats_cache = obj.parent.parent.next.firstChild
-				except: pass
+				self._chats_cache = obj.parent.parent.next.firstChild
+		except Exception:
+			pass
+		try:
 			if obj.name:
 				self._apply_phone_filter(obj)
 		except Exception:
@@ -470,13 +433,13 @@ class AppModule(appModuleHandler.AppModule):
 			return
 		in_message_list = self._has_message_list_ancestor(obj)
 		if in_message_list:
-			if self._phone_cache.get("filterMessageListPhones", True):
+			if self._read_bool("filter_phone_numbers_messages", True):
 				filtered = _PHONE_RE.sub('', name)
 				if filtered != name:
 					obj.name = re.sub(r'\s{2,}', ' ', filtered).strip()
 		else:
 			if self._is_chat_list_item(obj):
-				if self._phone_cache.get("filterChatListPhones", False):
+				if self._read_bool("filter_phone_numbers_chat", False):
 					filtered = _PHONE_RE.sub('', name)
 					if filtered != name:
 						obj.name = re.sub(r'\s{2,}', ' ', filtered).strip()
@@ -521,42 +484,10 @@ class AppModule(appModuleHandler.AppModule):
 		super().terminate()
 
 	def _patch_speech(self):
-		self._original_speak = None
-		self._patched_speech_module = None
-		try:
-			from speech.extensions import filter_speechSequence
-			filter_speechSequence.register(self._filter_speech)
-			self._speech_filter = filter_speechSequence
-			return
-		except (ImportError, AttributeError):
-			pass
-		try:
-			import speech.speech
-			self._original_speak = speech.speech.speak
-			speech.speech.speak = self._on_speak
-			self._patched_speech_module = speech.speech
-		except Exception:
-			try:
-				self._original_speak = speech.speak
-				speech.speak = self._on_speak
-				self._patched_speech_module = speech
-			except Exception:
-				pass
+		filter_speechSequence.register(self._filter_speech)
 
 	def _unpatch_speech(self):
-		if self._speech_filter:
-			try:
-				self._speech_filter.unregister(self._filter_speech)
-			except Exception:
-				pass
-			self._speech_filter = None
-		if self._patched_speech_module and self._original_speak:
-			try:
-				self._patched_speech_module.speak = self._original_speak
-			except Exception:
-				pass
-		self._original_speak = None
-		self._patched_speech_module = None
+		filter_speechSequence.unregister(self._filter_speech)
 
 	def _filter_speech(self, sequence):
 		focus = api.getFocusObject()
@@ -572,6 +503,7 @@ class AppModule(appModuleHandler.AppModule):
 		text_list = [item for item in new_sequence if isinstance(item, str)]
 		full_text = " ".join(text_list)
 		if full_text.strip() and self._focus_in_chat_list_table:
+			# ponytail: heuristic window; replace with event source IDs if NVDA exposes them.
 			speech_key = " ".join(full_text.split())
 			now = time.monotonic()
 			last_key, last_time = self._last_chat_list_speech
@@ -585,10 +517,6 @@ class AppModule(appModuleHandler.AppModule):
 				self._review_cursor = 0
 				self._review_line_index = 0
 		return new_sequence
-
-	def _on_speak(self, sequence, *args, **kwargs):
-		if self._original_speak:
-			self._original_speak(self._filter_speech(sequence), *args, **kwargs)
 
 	@script(description=_("Review previous character"), gesture="kb:NVDA+leftArrow")
 	def script_review_previous_character(self, gesture):
@@ -685,7 +613,7 @@ class AppModule(appModuleHandler.AppModule):
 		if "…" not in focus_name:
 			text = self._get_full_message_text(obj)
 			if text:
-				TextWindow(text, _("Message Text"), readOnly=False)
+				TextWindow(text, _("Message Text"))
 			else:
 				gesture.send()
 			return
@@ -693,7 +621,7 @@ class AppModule(appModuleHandler.AppModule):
 		if not parent:
 			text = self._get_full_message_text(obj)
 			if text:
-				TextWindow(text, _("Message Text"), readOnly=False)
+				TextWindow(text, _("Message Text"))
 			else:
 				gesture.send()
 			return
@@ -705,14 +633,14 @@ class AppModule(appModuleHandler.AppModule):
 		if not existing:
 			existing = focus_name
 		if len(existing) > 800:
-			TextWindow(existing, _("Message Text"), readOnly=False)
+			TextWindow(existing, _("Message Text"))
 			return
 		for sib in siblings:
 			collapsed_btn = self._locate_collapsed(sib)
 			if not collapsed_btn:
 				continue
 			all_buttons, _found = self._gather_buttons_until(sib, collapsed_btn)
-			focusable = [b for b in all_buttons if 16777216 in getattr(b, "states", set())]
+			focusable = [b for b in all_buttons if controlTypes.State.FOCUSABLE in getattr(b, "states", set())]
 			if len(focusable) >= 2:
 				read_more = focusable[1]
 			elif len(focusable) == 1:
@@ -734,12 +662,12 @@ class AppModule(appModuleHandler.AppModule):
 					pass
 				full = "\r\n".join(parts) if parts else focus_name
 				if full:
-					TextWindow(full, _("Message Text"), readOnly=False)
+					TextWindow(full, _("Message Text"))
 				else:
 					ui.message(_("Text not found"))
 			wx.CallLater(150, _show_expanded)
 			return
-		TextWindow(existing or focus_name, _("Message Text"), readOnly=False)
+		TextWindow(existing or focus_name, _("Message Text"))
 
 	@script(description=_("Copy message"), gesture="kb:control+c")
 	def script_copyMessage(self, gesture):
@@ -990,11 +918,9 @@ class AppModule(appModuleHandler.AppModule):
 	@script(description=_("Toggle phone number filtering in chat list"))
 	def script_toggleChatListPhones(self, gesture):
 		try:
-			new_val = not self._phone_cache.get("filterChatListPhones", False)
-			config.conf[_CONFIG_SECTION]["filterChatListPhones"] = new_val
+			new_val = not self._read_bool("filter_phone_numbers_chat", False)
 			config.conf[_CONFIG_SECTION]["filter_phone_numbers_chat"] = new_val
 			config.conf.save()
-			self._phone_cache["filterChatListPhones"] = new_val
 			if new_val:
 				ui.message(_("Chat list: phone numbers hidden"))
 			else:
@@ -1005,11 +931,9 @@ class AppModule(appModuleHandler.AppModule):
 	@script(description=_("Toggle phone number filtering in message list"))
 	def script_toggleMessageListPhones(self, gesture):
 		try:
-			new_val = not self._phone_cache.get("filterMessageListPhones", True)
-			config.conf[_CONFIG_SECTION]["filterMessageListPhones"] = new_val
+			new_val = not self._read_bool("filter_phone_numbers_messages", True)
 			config.conf[_CONFIG_SECTION]["filter_phone_numbers_messages"] = new_val
 			config.conf.save()
-			self._phone_cache["filterMessageListPhones"] = new_val
 			if new_val:
 				ui.message(_("Message list: phone numbers hidden"))
 			else:

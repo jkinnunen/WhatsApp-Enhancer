@@ -1,5 +1,4 @@
 ## What's New?
-* **Crash Fixes**: Migrated the background progress observer to the GUI thread and fixed speech patching memory leaks.
-* **Optimized Context Menu (`shift+enter`)**: Replaced slow recursive searches with an instant single-pass traversal.
-* **General Performance**: Accelerated voice message playback button.
-* **Fix strict Browse Mode Lock**: Blocks `NVDA+space` keypresses entirely when locking is active to prevent accidental virtual buffer toggles.
+* **Improved Stability**: Fixed problems that could stop WhatsApp enhancements from working after the app restarts.
+* **More Reliable Phone Number Filtering**: Chat list and message list preferences now work consistently and remain independent.
+* **Compatibility**: Now requires NVDA 2025.1 or later.
