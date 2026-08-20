@@ -1,4 +1,4 @@
 ## What's New?
-* **Improved Stability**: Fixed problems that could stop WhatsApp enhancements from working after the app restarts.
-* **More Reliable Phone Number Filtering**: Chat list and message list preferences now work consistently and remain independent.
-* **Compatibility**: Now requires NVDA 2025.1 or later.
+* **Cleaner Chat Navigation**: Fixed an issue where NVDA would still announce unwanted row numbers while navigating the chat list and messages.
+* **Smoother Message Viewer**: Opening full messages in the text window (Alt+C) is now faster and no longer leaves extra windows behind.
+* **General Stability**: Cleaned up background memory usage for better performance during long sessions.

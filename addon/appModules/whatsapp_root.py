@@ -114,9 +114,13 @@ class HeaderMenuDialog(Ia2Web):
 	def _get_items(self):
 		if self._items_cache: return self._items_cache
 		root = self
-		while root and root.parent and root.role != controlTypes.Role.WINDOW:
-			if root.location and root.location.width > 300 and root.location.height > 300: break
-			root = root.parent
+		try:
+			while root and root.parent and root.role != controlTypes.Role.WINDOW:
+				loc = root.location
+				if loc and loc.width > 300 and loc.height > 300: break
+				root = root.parent
+		except Exception:
+			pass
 		
 		items = []
 		stack = [root]
@@ -328,9 +332,6 @@ class AppModule(appModuleHandler.AppModule):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.mainWindow = None
-		self._chats_cache = None
-		self._message_list_cache = None
-		self._composer_cache = None
 		self._call_menu_btn_cache = None
 		self._last_spoken_text = ""
 		self._last_spoken_lines = []
@@ -394,29 +395,24 @@ class AppModule(appModuleHandler.AppModule):
 		return False
 
 	def event_NVDAObject_init(self, obj):
-		if obj.role == controlTypes.Role.SECTION:
+		target_roles = {
+			controlTypes.Role.SECTION,
+			getattr(controlTypes.Role, "ROW", None),
+			getattr(controlTypes.Role, "TABLECELL", None),
+			getattr(controlTypes.Role, "GRIDCELL", None),
+			getattr(controlTypes.Role, "CELL", None),
+		}
+		target_roles.discard(None)
+		if obj.role in target_roles:
 			obj.role = controlTypes.Role.PANE
+			if hasattr(obj, "presType_layout"):
+				try:
+					obj.presentationType = obj.presType_layout
+				except Exception:
+					pass
 		try:
-			ia2 = getattr(obj, "IA2Attributes", None)
-			if ia2:
-				cls = ia2.get("class", "")
-				if "fd365im1" in cls:
-					self._composer_cache = obj
-					try:
-						self._message_list_cache = obj.parent.parent.parent.parent.parent.previous.lastChild.lastChild
-					except Exception:
-						pass
-				elif "focusable-list-item" in cls and not self._message_list_cache:
-					self._message_list_cache = obj.parent
-		except Exception:
-			pass
-		try:
-			if not self._chats_cache and obj.role == controlTypes.Role.LIST:
-				loc = obj.location
-				if loc and loc.left < 450 and loc.width < 500:
-					self._chats_cache = obj
-			if obj.name and re.search(r'^(Chats|Chat|Daftar chat)$', obj.name, re.I):
-				self._chats_cache = obj.parent.parent.next.firstChild
+			obj.rowNumber = None
+			obj.columnNumber = None
 		except Exception:
 			pass
 		try:
