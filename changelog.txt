@@ -1,4 +1,4 @@
 ## What's New?
-* **Cleaner Chat Navigation**: Fixed an issue where NVDA would still announce unwanted row numbers while navigating the chat list and messages.
-* **Smoother Message Viewer**: Opening full messages in the text window (Alt+C) is now faster and no longer leaves extra windows behind.
-* **General Stability**: Cleaned up background memory usage for better performance during long sessions.
+* **Streamlined Shortcuts**: Removed the obsolete call menu shortcut to keep navigation clean and aligned with current WhatsApp features.
+* **Faster Response**: Optimized background processing so message reading and chat navigation feel more responsive.
+* **General Improvements**: Cleaned up internal components to ensure smoother performance and overall stability.

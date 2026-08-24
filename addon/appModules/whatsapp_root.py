@@ -16,112 +16,38 @@ addonHandler.initTranslation()
 _PHONE_RE = re.compile(r'\+\d[()\d\s\u202c-]{11,}')
 _CHAT_LIST_DUPLICATE_WINDOW = 0.25
 _CONFIG_SECTION = "WhatsAppEnhancer"
+_HINT_TRIGGER_RE = re.compile(
+	r"(arrow|panah|flecha|flèche|freccia|ok|Ok|стрелк|menu|konteks|context|contexto|contextuel|contestuale|Kontext|Bağlam)",
+	re.I
+)
+_HINT_STRIP_RE = re.compile(
+	r"(For more options|Untuk opsi|Para lebih|Para más|Pour plus|Per lebih|Per lebih banyak|Per lebih lanjut|"
+	r"Per più|Für weitere|Para mais|Daha fazla|Voor meer|Untuk mengakses|Untuk selengkapnya|Untuk bantuan|"
+	r"Untuk mendapatkan|Для получения|Để biết thêm|สำหรับตัวเลือก|その他のオプション|更多选项|अधिक विकल्पों|추가 옵션).*",
+	re.I
+)
 
 from .text_window import TextWindow
 from NVDAObjects.IAccessible.ia2Web import Ia2Web
-from .wh_utils import collect_elements
-
-class CallMenuDialog(Ia2Web):
-	_v_idx = -1
-	_items_cache = None
-
-	def _get_items(self):
-		if self._items_cache: return self._items_cache
-		items = []
-		stack = [self]
-		visited = 0
-		while stack and visited < 200:
-			o = stack.pop()
-			visited += 1
-			if o != self:
-				is_item = o.role in (controlTypes.Role.BUTTON, controlTypes.Role.LISTITEM)
-				cls = getattr(o, "IA2Attributes", {}).get("class", "")
-				if "xjb2p0i" in cls or "xk390pu" in cls or "_ahkm" in cls: is_item = True
-				
-				if is_item:
-					name = o.name
-					if not name:
-						sub = collect_elements(o, lambda x: x.name, max_items=10)
-						name = " ".join([s.name for s in sub if s.name])
-					if name and name.strip():
-						items.append(o)
-						continue
-
-			try:
-				child = o.lastChild
-				while child:
-					stack.append(child)
-					child = child.previous
-			except: pass
-		self._items_cache = items
-		return self._items_cache
-
-	def _announce(self, items):
-		if not items or self._v_idx < 0: return
-		obj = items[self._v_idx]
-		name = obj.name
-		if not name:
-			sub = collect_elements(obj, lambda o: o.name, max_items=20)
-			name = " ".join([s.name for s in sub if s.name])
-		
-		state_list = []
-		for s_name in ("CHECKED", "SELECTED", "PRESSED", "ON"):
-			s_val = getattr(controlTypes.State, s_name, None)
-			if s_val and s_val in obj.states:
-				state_list.append(controlTypes.stateLabels[s_val])
-		
-		full_msg = name or _("Option")
-		if state_list: full_msg += f" ({', '.join(state_list)})"
-		ui.message(full_msg)
-
-	def script_next(self, gesture):
-		items = self._get_items()
-		if not items: return gesture.send()
-		self._v_idx = (self._v_idx + 1) % len(items)
-		self._announce(items)
-
-	def script_prev(self, gesture):
-		items = self._get_items()
-		if not items: return gesture.send()
-		self._v_idx = (self._v_idx - 1) % len(items)
-		self._announce(items)
-
-	def script_activate(self, gesture):
-		items = self._get_items()
-		if items and 0 <= self._v_idx < len(items):
-			target = items[self._v_idx]
-			try: target.doAction()
-			except:
-				try: target.click()
-				except: gesture.send()
-		else:
-			gesture.send()
-
-	def event_loseFocus(self):
-		self._items_cache = None
-		self._v_idx = -1
-
-	__gestures = {
-		"kb:downArrow": "next",
-		"kb:upArrow": "prev",
-		"kb:control+enter": "activate",
-	}
+from .wh_utils import collect_elements, find_element
 
 class HeaderMenuDialog(Ia2Web):
 	_v_idx = -1
 	_items_cache = None
 
 	def _get_items(self):
-		if self._items_cache: return self._items_cache
+		if self._items_cache:
+			return self._items_cache
 		root = self
 		try:
 			while root and root.parent and root.role != controlTypes.Role.WINDOW:
 				loc = root.location
-				if loc and loc.width > 300 and loc.height > 300: break
+				if loc and loc.width > 300 and loc.height > 300:
+					break
 				root = root.parent
 		except Exception:
 			pass
-		
+
 		items = []
 		stack = [root]
 		visited = 0
@@ -132,7 +58,7 @@ class HeaderMenuDialog(Ia2Web):
 				is_target = o.role in (controlTypes.Role.BUTTON, controlTypes.Role.LISTITEM)
 				if not is_target and o.role == controlTypes.Role.STATICTEXT and o.name and len(o.name.strip()) > 1:
 					is_target = True
-				
+
 				if is_target:
 					name = o.name
 					if not name:
@@ -147,37 +73,42 @@ class HeaderMenuDialog(Ia2Web):
 				while child:
 					stack.append(child)
 					child = child.previous
-			except: pass
+			except Exception:
+				pass
 		self._items_cache = items
 		return self._items_cache
 
 	def _announce(self, items):
-		if not items or self._v_idx < 0: return
+		if not items or self._v_idx < 0:
+			return
 		obj = items[self._v_idx]
 		name = obj.name
 		if not name:
 			sub = collect_elements(obj, lambda o: o.name, max_items=20)
 			name = " ".join([s.name for s in sub if s.name])
-		
+
 		state_list = []
 		for s_name in ("CHECKED", "SELECTED", "PRESSED", "ON"):
 			s_val = getattr(controlTypes.State, s_name, None)
 			if s_val and s_val in obj.states:
 				state_list.append(controlTypes.stateLabels[s_val])
-		
+
 		full_msg = name or _("Option")
-		if state_list: full_msg += f" ({', '.join(state_list)})"
+		if state_list:
+			full_msg += f" ({', '.join(state_list)})"
 		ui.message(full_msg)
 
 	def script_next(self, gesture):
 		items = self._get_items()
-		if not items: return gesture.send()
+		if not items:
+			return gesture.send()
 		self._v_idx = (self._v_idx + 1) % len(items)
 		self._announce(items)
 
 	def script_prev(self, gesture):
 		items = self._get_items()
-		if not items: return gesture.send()
+		if not items:
+			return gesture.send()
 		self._v_idx = (self._v_idx - 1) % len(items)
 		self._announce(items)
 
@@ -185,10 +116,13 @@ class HeaderMenuDialog(Ia2Web):
 		items = self._get_items()
 		if items and 0 <= self._v_idx < len(items):
 			target = items[self._v_idx]
-			try: target.doAction()
-			except:
-				try: target.click()
-				except: gesture.send()
+			try:
+				target.doAction()
+			except Exception:
+				try:
+					target.click()
+				except Exception:
+					gesture.send()
 		else:
 			gesture.send()
 
@@ -256,9 +190,8 @@ class AppModule(appModuleHandler.AppModule):
 			return None
 		cleaned = self._HINT_RE.sub("", full_name).strip()
 		cleaned = re.sub(r"\s*\d{1,2}[:.]\d{2}(\s*[AaPp][Mm])?\s*$", "", cleaned).strip()
-		leaf_names = self._collect_leaf_texts(obj)
 		sender = next(
-			(t for t in leaf_names
+			(t for t in leaves
 			 if t and len(t) < 40 and cleaned.startswith(t) and len(t) < len(cleaned) - 5),
 			None
 		)
@@ -276,9 +209,6 @@ class AppModule(appModuleHandler.AppModule):
 		if sender:
 			cleaned = cleaned[len(sender):].lstrip(" :")
 		return cleaned.strip() or None
-
-	def _get_full_message_text(self, obj):
-		return self._extract_message_body(obj)
 
 	def _locate_collapsed(self, obj):
 		try:
@@ -332,7 +262,6 @@ class AppModule(appModuleHandler.AppModule):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.mainWindow = None
-		self._call_menu_btn_cache = None
 		self._last_spoken_text = ""
 		self._last_spoken_lines = []
 		self._review_cursor = 0
@@ -455,7 +384,7 @@ class AppModule(appModuleHandler.AppModule):
 		except Exception:
 			pass
 		try:
-			if not config.conf.get("WhatsAppEnhancer", {}).get("disable_browse_mode_lock", False):
+			if not self._read_bool("disable_browse_mode_lock", False):
 				ti = getattr(obj, "treeInterceptor", None)
 				if ti:
 					ti.passThrough = True
@@ -465,8 +394,6 @@ class AppModule(appModuleHandler.AppModule):
 
 	def chooseNVDAObjectOverlayClasses(self, obj, clsList):
 		cls = getattr(obj, "IA2Attributes", {}).get("class", "")
-		if "x1c4vz4f" in cls and "x1nhvcw1" in cls:
-			clsList.insert(0, CallMenuDialog)
 		if "xyi3aci" in cls and "xe2zdcy" in cls:
 			clsList.insert(0, HeaderMenuDialog)
 		if "xuwfzo9" in cls and obj.parent:
@@ -490,11 +417,11 @@ class AppModule(appModuleHandler.AppModule):
 		if not focus or getattr(focus, "appModule", None) is not self:
 			return sequence
 		new_sequence = []
-		hp = r"(For more options|Untuk opsi|Para lebih|Para más|Pour plus|Per lebih|Per lebih banyak|Per lebih lanjut|Per più|Für weitere|Para mais|Daha fazla|Voor meer|Untuk mengakses|Untuk selengkapnya|Untuk bantuan|Untuk mendapatkan|Для получения|Để biết thêm|สำหรับตัวเลือก|その他のオプション|更多选项|अधिक विकल्पों|추가 옵션)"
+		filter_hints = not self._read_bool("read_usage_hints", True)
 		for item in sequence:
-			if isinstance(item, str) and not config.conf.get("WhatsAppEnhancer", {}).get("read_usage_hints", True):
-				if re.search(r"(arrow|panah|flecha|flèche|freccia|ok|Ok|стрелк|menu|konteks|context|contexto|contextuel|contestuale|Kontext|Bağlam)", item, re.I) and re.search(hp, item, re.I):
-					item = re.sub(hp + r".*", "", item, flags=re.I).strip()
+			if isinstance(item, str) and filter_hints:
+				if _HINT_TRIGGER_RE.search(item):
+					item = _HINT_STRIP_RE.sub("", item).strip()
 			new_sequence.append(item)
 		text_list = [item for item in new_sequence if isinstance(item, str)]
 		full_text = " ".join(text_list)
@@ -607,7 +534,7 @@ class AppModule(appModuleHandler.AppModule):
 			return
 		focus_name = (getattr(obj, "name", "") or "")
 		if "…" not in focus_name:
-			text = self._get_full_message_text(obj)
+			text = self._extract_message_body(obj)
 			if text:
 				TextWindow(text, _("Message Text"))
 			else:
@@ -615,7 +542,7 @@ class AppModule(appModuleHandler.AppModule):
 			return
 		parent = getattr(obj, "parent", None)
 		if not parent:
-			text = self._get_full_message_text(obj)
+			text = self._extract_message_body(obj)
 			if text:
 				TextWindow(text, _("Message Text"))
 			else:
@@ -726,23 +653,11 @@ class AppModule(appModuleHandler.AppModule):
 		if not container:
 			container = f
 
-		from collections import deque
-		queue = deque([container])
-		visited = 0
-		while queue and visited < 150:
-			obj = queue.popleft()
-			visited += 1
+		btn = find_element(container, is_context_button, max_items=150)
+		if btn:
 			try:
-				child = obj.firstChild
-				while child:
-					if is_context_button(child):
-						try:
-							child.doAction()
-							return
-						except Exception:
-							pass
-					queue.append(child)
-					child = child.next
+				btn.doAction()
+				return
 			except Exception:
 				pass
 
@@ -759,22 +674,23 @@ class AppModule(appModuleHandler.AppModule):
 			try:
 				obj.doAction()
 				return True
-			except:
+			except Exception:
 				pass
 			try:
 				obj.click()
 				return True
-			except:
+			except Exception:
 				pass
 			try:
 				obj.setFocus()
 				gesture.send()
 				return True
-			except:
+			except Exception:
 				return False
 
 		def is_voice_play_button(obj):
-			if obj.role != controlTypes.Role.BUTTON: return False
+			if obj.role != controlTypes.Role.BUTTON:
+				return False
 			attrs = getattr(obj, "IA2Attributes", {})
 			cls = attrs.get("class", "")
 			tag = attrs.get("tag", "")
@@ -816,82 +732,15 @@ class AppModule(appModuleHandler.AppModule):
 		if not container:
 			container = f
 
-		from collections import deque
-		queue = deque([container])
-		visited = 0
-		while queue and visited < 150:
-			obj = queue.popleft()
-			visited += 1
-			try:
-				child = obj.firstChild
-				while child:
-					if is_voice_play_button(child):
-						if activate_button(child):
-							return
-					queue.append(child)
-					child = child.next
-			except Exception:
-				pass
-
-		gesture.send()
-
-	@script(description=_("Open call menu"), gesture="kb:shift+alt+c")
-	def script_openCallMenu(self, gesture):
-		f = api.getFocusObject()
-		if f.role == controlTypes.Role.EDITABLETEXT:
-			gesture.send()
+		btn = find_element(container, is_voice_play_button, max_items=150)
+		if btn and activate_button(btn):
 			return
-		
-		if getattr(self, "_call_menu_btn_cache", None) and self._call_menu_btn_cache.windowHandle:
-			try:
-				self._call_menu_btn_cache.doAction()
-				return
-			except:
-				self._call_menu_btn_cache = None
 
-		def is_call_menu_button(obj):
-			if obj.role != controlTypes.Role.BUTTON: return False
-			cls = getattr(obj, "IA2Attributes", {}).get("class", "")
-			return "xjb2p0i" in cls and "xk390pu" in cls
-
-		root = self.mainWindow or api.getForegroundObject()
-		from collections import deque
-		queue = deque([root])
-		visited = 0
-		found_btn = None
-		while queue and visited < 300:
-			obj = queue.popleft()
-			visited += 1
-			try:
-				child = obj.firstChild
-				while child:
-					if is_call_menu_button(child):
-						found_btn = child
-						break
-					queue.append(child)
-					child = child.next
-				if found_btn:
-					break
-			except Exception:
-				pass
-		
-		if found_btn:
-			self._call_menu_btn_cache = found_btn
-			try:
-				found_btn.doAction()
-				return
-			except:
-				pass
 		gesture.send()
 
 	@script(description=_("Toggle browse mode"), gestures=["kb:NVDA+space"])
 	def script_disableBrowseModeToggle(self, gesture):
-		lock_disabled = False
-		try:
-			lock_disabled = bool(config.conf.get("WhatsAppEnhancer", {}).get("disable_browse_mode_lock", False))
-		except Exception:
-			pass
-		if lock_disabled:
+		if self._read_bool("disable_browse_mode_lock", False):
 			try:
 				import globalCommands
 				s = getattr(globalCommands.commands, "script_toggleVirtualBufferPassThrough", None)
@@ -936,3 +785,4 @@ class AppModule(appModuleHandler.AppModule):
 				ui.message(_("Message list: phone numbers visible"))
 		except Exception:
 			pass
+

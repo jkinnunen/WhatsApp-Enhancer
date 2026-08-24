@@ -113,10 +113,10 @@ Our filter automatically identifies and **silences these hints**, leaving only t
 *   **Configuration:** This feature can be toggled via the "Read usage hints while navigating chat list" option in the settings panel.
 
 ### 5. Virtual Navigation for Inaccessible Menus
-Certain parts of the modern WhatsApp interface—such as the Call menu and Settings panels—are difficult to navigate when Browse Mode is disabled. We have transformed these areas into fast, responsive **virtual menus**.
+Certain parts of the modern WhatsApp interface—such as Settings panels and dialog menus—are difficult to navigate when Browse Mode is disabled. We have transformed these areas into fast, responsive **virtual menus**.
 
-*   **How it works:** When you focus on these areas (e.g., after pressing `Alt + Shift + C` for calls, or navigating to the Some settings dialog), NVDA captures the available options into a temporary list.
-*   **Virtual Browsing:** Use **Up or Down Arrows** to cycle through the options. NVDA will announce each item (like "Voice Call", "Profile", or "Status") along with its current state (e.g., "on" or "off"), without shifting your actual focus on the screen.
+*   **How it works:** When you focus on these dialog areas, NVDA captures the available options into a temporary list.
+*   **Virtual Browsing:** Use **Up or Down Arrows** to cycle through the options. NVDA will announce each item (like "Profile", "Chats", "Notifications", or "Status") along with its current state (e.g., "on" or "off"), without shifting your actual focus on the screen.
 *   **Quick Activation:** Press **Control + Enter** to immediately trigger the option you have selected.
 
 > [!IMPORTANT]
